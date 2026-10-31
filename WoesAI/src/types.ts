@@ -6,7 +6,12 @@ export type ReferenceStatusType = 'CONFORME' | 'PARTIELLEMENT_CONFORME' | 'NON_C
 
 export type AppLanguage = 'fr' | 'en' | 'ee' | 'kbp';
 
-export type AppMode = 'scanner' | 'educational';
+export type AppMode = 'scanner' | 'learning' | 'educational';
+
+export const MODES = {
+  SCANNER: 'scanner',
+  LEARNING: 'learning',
+} as const;
 
 export interface TransactionInfo {
   type: 'depot' | 'retrait' | 'transfert' | 'paiement' | 'inconnu';
@@ -75,6 +80,17 @@ export interface EducationalSession {
   examDate?: string;
   studyField?: string;
   quizScore?: { correct: number; total: number };
+}
+
+export interface Conversation {
+  id: string;
+  title: string;
+  mode: AppMode;
+  language: AppLanguage;
+  messages: ChatMessage[];
+  createdAt: number;
+  updatedAt: number;
+  educationalSession?: EducationalSession;
 }
 
 export interface CommunityReport {

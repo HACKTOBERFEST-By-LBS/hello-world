@@ -24,37 +24,37 @@ const ai = new GoogleGenAI({
   },
 });
 
-const LOW_LATENCY_MODEL = 'gemini-3.1-flash-lite';
-const FALLBACK_MODEL = 'gemini-3.8-flash';
+const PRIMARY_MODEL = 'gemini-3.5-flash';
+const CANDIDATE_MODELS = [
+  'gemini-3.5-flash',
+  'gemini-3.5-flash-lite',
+  'gemini-3.8-flash',
+  'gemini-3.1-flash-lite',
+];
 
-// Helper to call Gemini with retry and fallback
+// Helper to call Gemini/Gemma with retry and multi-model fallback
 async function callGeminiWithResilience(params: {
   contents: any;
   config?: any;
 }): Promise<{ response: any; modelUsed: string }> {
-  // Attempt 1: gemini-3.1-flash-lite (fastest low-latency model)
-  try {
-    const res = await ai.models.generateContent({
-      model: LOW_LATENCY_MODEL,
-      contents: params.contents,
-      config: params.config,
-    });
-    return { response: res, modelUsed: LOW_LATENCY_MODEL };
-  } catch (err: any) {
-    const errStr = `${err?.message || ''} ${err?.status || ''} ${JSON.stringify(err || '')}`;
-    console.warn(`[WoèséAI] Notice: ${LOW_LATENCY_MODEL} encountered an issue, seamlessly switching to ${FALLBACK_MODEL}...`);
+  let lastError: any = null;
+
+  for (const model of CANDIDATE_MODELS) {
     try {
-      const fallbackRes = await ai.models.generateContent({
-        model: FALLBACK_MODEL,
+      const res = await ai.models.generateContent({
+        model,
         contents: params.contents,
         config: params.config,
       });
-      return { response: fallbackRes, modelUsed: FALLBACK_MODEL };
-    } catch (fallbackErr: any) {
-      console.error('[WoèséAI] Fallback model also errored:', fallbackErr);
-      throw fallbackErr;
+      return { response: res, modelUsed: model };
+    } catch (err: any) {
+      lastError = err;
+      console.warn(`[WoèséAI] Notice: model ${model} failed (${err?.message || err}), switching to next model in chain...`);
     }
   }
+
+  console.error('[WoèséAI] All candidate models errored:', lastError);
+  throw lastError;
 }
 
 const WOESEAI_SYSTEM_PROMPT = `Tu es WoèséAI, un assistant intelligent spécialisé dans la cybersécurité financière et la détection des escroqueries liées aux services Mobile Money au Togo (particulièrement T-Money de Togocom et Moov Money de Moov Africa Togo).
@@ -155,7 +155,9 @@ const ANALYSIS_SCHEMA = {
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
-    model: LOW_LATENCY_MODEL,
+    primaryModel: PRIMARY_MODEL,
+    engine: 'Gemma & Gemini Hybrid Fallback (Google)',
+    fallbackChain: CANDIDATE_MODELS,
     hasApiKey: Boolean(process.env.GEMINI_API_KEY),
     timestamp: new Date().toISOString(),
   });
@@ -236,17 +238,59 @@ app.post('/api/analyze', async (req, res) => {
   }
 });
 
+const SCANNER_SYSTEM_PROMPT = `Tu es WoèséAI Scanner, un assistant intelligent togolais spécialisé EXCLUSIVEMENT dans la cybersécurité financière et la détection d'escroqueries liées aux services Mobile Money au Togo (particulièrement T-Money de Togocom et Moov Money de Moov Africa Togo).
+
+RÈGLES FONDAMENTALES DU MODE SCANNER :
+1. Tu es STRICTEMENT en mode Scanner. Tu te concentres EXCLUSIVEMENT sur la détection des arnaques Mobile Money, l'analyse des SMS, transferts, dépôts et captures d'écran.
+2. Tu ne dois JAMAIS parler de cours d'école, de révisions scolaires, de devoirs, d'examens ou de quiz.
+3. Tu ne proposes JAMAIS spontanément le mode apprentissage.
+4. Si l'utilisateur demande à réviser ou étudier, indique-lui brièvement : « Tape /apprendre pour ouvrir ton espace d'apprentissage dédié. »
+5. Tu classes chaque message parmi 4 statuts stricts :
+   - [ROUGE] FRAUDULEUX : Arnaque avérée (demande de PIN/OTP, faux dépôt d'erreur avec appel paniqué pour réclamer un remboursement, fausse tombola exigeant des frais, fausse tontine WhatsApp, menace de suspension de ligne).
+   - [ORANGE] SUSPECT : Anomalies constatées, expéditeur avec un numéro personnel individuel, syntaxe douteuse.
+   - [VERT] AUTHENTIQUE (Format officiel) : UNIQUEMENT si conforme au modèle officiel validé. AVERTISSEMENT OBLIGATOIRE : même conforme, la syntaxe ne garantit pas la transaction ! Seul le solde vérifié via *145# ou *155# fait foi.
+   - [GRIS] NON VÉRIFIABLE : Texte tronqué ou données insuffisantes.
+6. RÈGLE DE SÉCURITÉ ABSOLUE : Un escroc peut copier le texte d'un SMS officiel. Rappelle toujours à l'utilisateur de vérifier son solde réel lui-même (*145# pour T-Money, *155# pour Moov Money).
+
+Dans les arnaques courantes au Togo :
+- Faux dépôt d'erreur : faux SMS suivi d'un appel pressant pour faire renvoyer l'argent.
+- Fausse loterie Togocom / Moov : faux gain de 500.000 FCFA réclamant 15.000 FCFA de frais de dossier.
+- Vol de code PIN / OTP : prétendu agent affirmant que le compte va être bloqué.
+- Fausse tontine en ligne promettant de tripler la mise.`;
+
+const LEARNING_SYSTEM_PROMPT = `Tu es WoèséAI Apprentissage, un tuteur pédagogique bienveillant, stimulant et rigoureux, dédié EXCLUSIVEMENT à l'accompagnement des élèves, étudiants et apprenants au Togo.
+
+RÈGLES FONDAMENTALES DU MODE APPRENTISSAGE :
+1. Tu es STRICTEMENT en mode Apprentissage. Le mode Scanner d'arnaques est TOTALEMENT DÉSACTIVÉ.
+2. Tu ne dois JAMAIS mentionner T-Money, Moov Money, Togocom, les escroqueries financières, la détection de faux SMS ou les codes USSD bancaires. Ce sujet ne doit JAMAIS être abordé, sauf si l'étudiant pose volontairement une question spécifique sur ce thème dans le cadre strict de son cours.
+3. Tu ne dois jamais afficher de message de sécurité Mobile Money, d'alerte de transaction ou de numéro d'urgence bancaire.
+4. Ton rôle est d'expliquer les cours, clarifier les concepts difficiles avec des analogies simples et des exemples concrets, aider à la mémorisation et préparer les examens.
+
+COMMANDES PÉDAGOGIQUES DISPONIBLES :
+1. /plan : Établis un calendrier de révision réaliste sur plusieurs jours jusqu'à la date d'examen. Demande la date d'examen si elle n'est pas connue.
+2. /quiz : Pose UNE SEULE question interactive à la fois (QCM ou Vrai/Faux ou question de réflexion) à partir du cours. Attends la réponse de l'étudiant, corrige avec bienveillance en expliquant la réponse, puis propose la question suivante.
+3. /resume : Rédige un résumé clair du cours : points clés, définitions importantes, fiches mémo et formules.
+4. /domain : Explore les spécialisations du domaine, compétences requises, outils réels et débouchés professionnels au Togo et à l'international.
+5. /stop : Permet à l'étudiant de quitter l'espace d'apprentissage et de revenir au Scanner.
+
+RÈGLE DES COURS :
+- Si un document ou cours a été téléversé, base tes explications, résumés et questions DIRECTEMENT et FIDÈLEMENT sur ce cours sans rien inventer.
+- Si aucun document n'a été fourni, réponds avec clarté aux questions académiques posées et invite l'étudiant à téléverser son cours (PDF, image, texte) pour un suivi personnalisé.
+- Ton de communication : bienveillant, clair, encourageant, valorisant les efforts de l'étudiant.`;
+
 function buildSystemPrompt(language: string = 'fr', mode: string = 'scanner', educationalSession?: any): string {
   let langInstruction = "Tu t'exprimes en français simple, bienveillant, pédagogique et accessible à tout citoyen.";
   if (language === 'en') {
     langInstruction = "You converse in clear, accessible, reassuring English for Togolese and international users.";
   } else if (language === 'ee') {
-    langInstruction = `L'utilisateur a choisi la langue Éwé (Eʋegbe parlé au Togo). Réponds dans un Éwé naturel, respectueux et clair pour les salutations, avertissements et conseils. Si certains termes techniques ou académiques n'ont pas d'équivalent exact en Éwé, explique-les clairement avec des mots simples ou accompagne-les d'une précision en français pour une clarté totale. Reste fidèle aux règles de sécurité togolaises.`;
+    langInstruction = `L'utilisateur a choisi la langue Éwé (Eʋegbe parlé au Togo). Réponds dans un Éwé naturel, respectueux et clair pour les salutations, explications et conseils. Si certains termes techniques ou académiques n'ont pas d'équivalent exact en Éwé, explique-les clairement avec des mots simples ou accompagne-les d'une précision en français pour une clarté totale.`;
   } else if (language === 'kbp') {
-    langInstruction = `L'utilisateur a choisi la langue Kabyè (Kabɩyɛ parlé au Togo). Réponds dans un Kabyè chaleureux et clair pour les salutations, avertissements et conseils. Si certains termes techniques ou académiques n'ont pas d'équivalent exact en Kabyè, accompagne-les d'une précision en français pour ne rien déformer. Reste rigoureux sur la sécurité.`;
+    langInstruction = `L'utilisateur a choisi la langue Kabyè (Kabɩyɛ parlé au Togo). Réponds dans un Kabyè chaleureux et clair pour les salutations, explications et conseils. Si certains termes techniques ou académiques n'ont pas d'équivalent exact en Kabyè, accompagne-les d'une précision en français pour ne rien déformer.`;
   }
 
-  if (mode === 'educational') {
+  const isLearning = mode === 'learning' || mode === 'educational';
+
+  if (isLearning) {
     let sessionContext = '';
     if (educationalSession?.courseText) {
       sessionContext = `\n\nCOURS OU DOCUMENT DE L'ÉTUDIANT EN MÉMOIRE :
@@ -255,78 +299,157 @@ Contenu du cours :
 """
 ${educationalSession.courseText.slice(0, 10000)}
 """
-RÈGLE ABSOLUE POUR LE MODE ÉDUCATIF :
+RÈGLE ABSOLUE POUR LE COURS :
 - Base toutes tes explications, résumés et questions de quiz DIRECTEMENT sur ce cours fourni par l'étudiant.
-- N'invente pas des informations en prétendant qu'elles figurent dans son document.`;
+- N'invente pas des faits ou des chapitres qui ne figurent pas dans son document.`;
     }
 
-    return `Tu es WoèséAI, propulsé par Gemma comme moteur IA principal, agissant ici en MODE ÉDUCATIF pour accompagner les étudiants et apprenants au Togo.
+    return `${LEARNING_SYSTEM_PROMPT}
 ${langInstruction}
-
-COMMANDES ÉDUCATIVES QUE TU DOIS GÉRER :
-1. Commandes d'aide : '/' ou '/aide' -> Présente clairement la liste des commandes éducatives disponibles avec un court résumé.
-2. '/apprendre' -> Invite l'étudiant à fournir ou coller son cours (s'il ne l'a pas déjà fait). S'il y a déjà un cours en mémoire, analyse les thèmes et chapitres clés, confirme la détection et propose une méthode de travail adaptée.
-3. '/plan' -> Établis un programme de révision réaliste sur plusieurs jours jusqu'à la date d'examen. Si la date d'examen n'est pas encore mentionnée (date actuelle : ${educationalSession?.examDate || 'non spécifiée'}), demande-la poliment ou propose un modèle sur 7 à 14 jours avec objectifs quotidiens, chapitres, exercices et temps de repos.
-4. '/quiz' -> Teste les connaissances de l'étudiant à partir du cours fourni ! Pose UNE seule question à la fois (QCM ou Vrai/Faux ou question ouverte de compréhension). Attends la réponse de l'étudiant, corrige avec bienveillance en expliquant pourquoi, puis propose la question suivante.
-5. '/resume' -> Produis un support de révision complet et clair : résumé général, récapitulatif par chapitre, fiches de révision mémo, définitions clés, formules et points cruciaux à mémoriser.
-6. '/domain' -> Aide l'étudiant à explorer son domaine d'études. Si son domaine (${educationalSession?.studyField || 'non précisé'}) n'est pas connu, demande-le lui. Propose ensuite des spécialisations concrètes (ex: en informatique : Full Stack, Cybersécurité, Réseaux, IA, Data, DevOps), avec pour chaque branche : description, compétences, outils/technos clés, projets pratiques pour s'entraîner, débouchés au Togo et à l'international, certifications réelles, et parcours débutant progressif.
-7. '/stop' -> Confirme la désactivation de la session éducative et le retour au mode Scanner d'arnaques, en rassurant l'étudiant que son cours reste conservé en mémoire pour une prochaine fois.
-
-STRUCTURE DE TES RÉPONSES :
-- Titres clairs et aérés
-- Paragraphes courts
-- Listes à puces
-- Mots-clés importants en **gras**
-- Ton encourageant, jamais rabaissant.
 ${sessionContext}`;
   }
 
   // Scanner Mode (Default)
-  return `${WOESEAI_SYSTEM_PROMPT}
+  return `${SCANNER_SYSTEM_PROMPT}
 ${langInstruction}
 
-RÈGLES D'AFFICHAGE DU SCANNER D'ARNAQUES (STYLE CHATGPT & BALISES VISUELLES) :
-Quand l'utilisateur te transmet un SMS, une description d'appel ou une capture d'écran Mobile Money (T-Money ou Moov Money) :
-1. Détermine le verdict parmi :
-   - [ROUGE] FRAUDULEUX : Si danger avéré (faux dépôt demandant remboursement, vol de PIN/OTP, faux gain avec frais, fausse tontine pyramidale, menace de coupure).
-   - [ORANGE] SUSPECT : Si anomalies, expéditeur douteux, numéro personnel au lieu du serveur.
-   - [VERT] AUTHENTIQUE (Format officiel) : UNIQUEMENT si conforme au modèle officiel validé. AVERTISSEMENT OBLIGATOIRE : même si conforme, la syntaxe ne garantit pas la transaction ! Seul le solde via *145# ou *155# fait foi.
-   - [GRIS] NON VÉRIFIABLE : Si informations incomplètes ou tronquées.
-2. Structure ta réponse avec ces sections distinctes :
+RÈGLES D'AFFICHAGE DU SCANNER :
+Quand l'utilisateur te transmet un SMS ou une capture d'écran Mobile Money :
+1. Détermine le verdict : [ROUGE] FRAUDULEUX, [ORANGE] SUSPECT, [VERT] AUTHENTIQUE (Format officiel) ou [GRIS] NON VÉRIFIABLE.
+2. Structure la réponse :
    **Résultat de l'analyse :**
-   [Insère le badge coloré, ex: [ROUGE] FRAUDULEUX]
+   [Insère le badge coloré avec explication courte]
 
-   **Opérateur identifié :** T-Money (Togocom) ou Moov Money (Moov Africa) ou Inconnu
-   **Détails de la transaction détectée :** (Montant, Expéditeur, Référence TXN si présents)
+   **Opérateur identifié :** T-Money ou Moov Money ou Inconnu
+   **Détails de la transaction détectée :** (Montant, Expéditeur, Référence TXN, Type)
 
    **Pourquoi ce message est suspect / analyse :**
-   - Liste à puces concise des signaux d'alerte et des manipulations psychologiques (urgence artificielle, culpabilisation, appât du gain).
+   - Liste à puces concise des signaux d'alerte et des manipulations psychologiques.
 
    **Ce que tu dois faire immédiatement :**
    1. Ne verse aucun argent et ne rappelle pas ce numéro.
    2. Ne communique JAMAIS ton code secret PIN ni ton code OTP.
-   3. Vérifie ton solde officiel en composant toi-même *145# (T-Money) ou *155# (Moov Money).
-   4. En cas de doute, appelle le service officiel (888 pour Togocom, 100 pour Moov).
-
-Ne fais pas de fausse promesse. Sois rapide, précis et protecteur.`;
+   3. Vérifie ton solde officiel en composant *145# (T-Money) ou *155# (Moov Money).
+   4. En cas de doute, appelle le service officiel (888 pour Togocom, 100 pour Moov).`;
 }
+
+// Fixed required messages as specified by user instructions
+const LEARNING_WELCOME_MESSAGE = `Bonjour et bienvenue dans ton espace d'apprentissage !
+
+Je suis ton assistant pédagogique. Je suis là pour t'aider à comprendre tes cours, organiser tes révisions et progresser à ton rythme.
+
+Tu peux commencer en m'envoyant un cours au format PDF, une image ou du texte.
+
+Voici ce que je peux faire avec toi :
+
+📚 /plan — Organiser tes révisions sur plusieurs jours.
+
+🧠 /quiz — Tester tes connaissances et corriger tes erreurs.
+
+📝 /resume — Résumer tes cours et créer des fiches de révision.
+
+🎯 /domain — Explorer les sujets de ton cours.
+
+❌ /stop — Quitter le mode Apprentissage et revenir au mode Scanner.
+
+Alors, quel cours souhaites-tu étudier aujourd'hui ?`;
+
+const SCANNER_RETURN_MESSAGE = `Tu es de retour dans WoèséAI Scanner !
+
+Je suis prêt à t'aider à analyser les SMS et captures d'écran suspects liés au Mobile Money.
+
+Tu peux coller un message ou importer une capture d'écran pour commencer une analyse.
+
+Comment puis-je t'aider ?`;
+
+const SCANNER_ALREADY_ACTIVE_MESSAGE = `Tu es déjà dans le mode Scanner de WoèséAI.
+
+Tu peux coller un SMS suspect ou importer une capture d'écran pour démarrer une analyse Mobile Money.`;
+
+const LEARNING_COMMAND_IN_SCANNER_MESSAGE = `Cette commande est réservée au mode Apprentissage.
+
+Tape **/apprendre** pour accéder à ton espace pédagogique, analyser tes cours et lancer des quiz ou révisions.`;
 
 // API Route: Fast low-latency Conversational Assistant (Streamed SSE or single response)
 app.post('/api/chat', async (req, res) => {
-  const { messages, stream = true, language = 'fr', mode = 'scanner', educationalSession, imageBase64, imageMime } = req.body;
+  const {
+    messages,
+    stream = true,
+    language = 'fr',
+    mode = 'scanner',
+    educationalSession,
+    imageBase64,
+    imageMime,
+    pdfBase64,
+    docName,
+  } = req.body;
 
   if (!messages || !Array.isArray(messages)) {
     return res.status(400).json({ error: 'Messages invalides.' });
   }
 
+  const isLearningMode = mode === 'learning' || mode === 'educational';
+  const latestMsg = messages[messages.length - 1];
+  const rawInput = (latestMsg?.content || '').trim().toLowerCase();
+
+  // Priority command 1: /stop
+  if (rawInput === '/stop') {
+    const textReply = isLearningMode ? SCANNER_RETURN_MESSAGE : SCANNER_ALREADY_ACTIVE_MESSAGE;
+    if (stream) {
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.write(`data: ${JSON.stringify({ text: textReply, newMode: 'scanner' })}\n\n`);
+      res.write('data: [DONE]\n\n');
+      return res.end();
+    } else {
+      return res.json({ text: textReply, newMode: 'scanner', latencyMs: 5 });
+    }
+  }
+
+  // Priority command 2: /apprendre
+  if (rawInput === '/apprendre') {
+    if (stream) {
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.write(`data: ${JSON.stringify({ text: LEARNING_WELCOME_MESSAGE, newMode: 'learning' })}\n\n`);
+      res.write('data: [DONE]\n\n');
+      return res.end();
+    } else {
+      return res.json({ text: LEARNING_WELCOME_MESSAGE, newMode: 'learning', latencyMs: 5 });
+    }
+  }
+
+  // Pedagogical command used inside Scanner mode
+  if (!isLearningMode && (rawInput === '/plan' || rawInput === '/quiz' || rawInput === '/resume' || rawInput === '/domain')) {
+    if (stream) {
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.write(`data: ${JSON.stringify({ text: LEARNING_COMMAND_IN_SCANNER_MESSAGE })}\n\n`);
+      res.write('data: [DONE]\n\n');
+      return res.end();
+    } else {
+      return res.json({ text: LEARNING_COMMAND_IN_SCANNER_MESSAGE, latencyMs: 5 });
+    }
+  }
+
+  // Strict Context Isolation: Filter messages by active mode so no scanner history reaches learning, and vice-versa
+  const filteredMessages = messages.filter((m: any) => {
+    if (isLearningMode) {
+      return m.mode === 'learning' || m.mode === 'educational' || !m.mode;
+    } else {
+      return m.mode === 'scanner' || !m.mode;
+    }
+  });
+
   const systemInstruction = buildSystemPrompt(language, mode, educationalSession);
 
   // Format messages for Gemini
-  const contents = messages.map((m: { role: string; content: string; imageUrl?: string; imageMime?: string }, index: number) => {
+  const contents = filteredMessages.map((m: { role: string; content: string; imageUrl?: string; imageMime?: string }, index: number) => {
     const parts: any[] = [];
-
-    // If latest user message has an attached image
-    const isLatest = index === messages.length - 1;
+    const isLatest = index === filteredMessages.length - 1;
     const imgData = m.imageUrl || (isLatest ? imageBase64 : null);
     const imgType = m.imageMime || (isLatest ? imageMime : null) || 'image/png';
 
@@ -340,7 +463,24 @@ app.post('/api/chat', async (req, res) => {
       });
     }
 
-    parts.push({ text: m.content || (imgData ? "Analyse cette capture d'écran." : "") });
+    if (isLatest && pdfBase64 && typeof pdfBase64 === 'string') {
+      const cleanPdf = pdfBase64.replace(/^data:application\/pdf;base64,/, '');
+      parts.push({
+        inlineData: {
+          mimeType: 'application/pdf',
+          data: cleanPdf,
+        },
+      });
+    }
+
+    let messagePrompt = m.content;
+    if (!messagePrompt) {
+      if (imgData) messagePrompt = isLearningMode ? "Analyse cette image de cours." : "Analyse cette capture d'écran.";
+      else if (pdfBase64) messagePrompt = `Voici mon document de cours (${docName || 'PDF'}). Analyse-le et prépare la session.`;
+      else messagePrompt = "";
+    }
+
+    parts.push({ text: messagePrompt });
 
     return {
       role: m.role === 'assistant' ? 'model' : 'user',
@@ -354,24 +494,27 @@ app.post('/api/chat', async (req, res) => {
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
 
-      let responseStream;
-      try {
-        responseStream = await ai.models.generateContentStream({
-          model: LOW_LATENCY_MODEL,
-          contents,
-          config: {
-            systemInstruction,
-          },
-        });
-      } catch (err: any) {
-        console.warn(`[WoèséAI] Stream switching to fallback ${FALLBACK_MODEL}...`);
-        responseStream = await ai.models.generateContentStream({
-          model: FALLBACK_MODEL,
-          contents,
-          config: {
-            systemInstruction,
-          },
-        });
+      let responseStream: any = null;
+      let streamModelUsed = PRIMARY_MODEL;
+
+      for (const model of CANDIDATE_MODELS) {
+        try {
+          responseStream = await ai.models.generateContentStream({
+            model,
+            contents,
+            config: {
+              systemInstruction,
+            },
+          });
+          streamModelUsed = model;
+          break;
+        } catch (err: any) {
+          console.warn(`[WoèséAI] Stream attempt with ${model} failed, trying next model in chain...`);
+        }
+      }
+
+      if (!responseStream) {
+        throw new Error('Impossible d’initialiser le flux avec les modèles disponibles.');
       }
 
       for await (const chunk of responseStream) {
@@ -478,7 +621,7 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`[WoèséAI Server] Running on http://0.0.0.0:${PORT} (model: ${LOW_LATENCY_MODEL})`);
+    console.log(`[WoèséAI Server] Running on http://0.0.0.0:${PORT} (primary model: ${PRIMARY_MODEL})`);
   });
 }
 

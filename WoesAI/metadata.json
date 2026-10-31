@@ -1,6 +1,8 @@
 {
-  "name": "WoèséAI - Détecteur d'Arnaques Mobile Money Togo",
+  "name": "Remix WoèséAI - Détecteur d\u0027Arnaques Mobile Money Togo",
   "description": "Assistant intelligent togolais pour analyser, détecter et déjouer les arnaques et faux SMS T-Money et Moov Money avec réponses ultra-rapides.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

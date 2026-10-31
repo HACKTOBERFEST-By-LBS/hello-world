@@ -1,3 +1,16 @@
+export interface OfficialModelReference {
+  id: string;
+  operator: 'T-Money' | 'Moov Money';
+  transactionType: 'depot' | 'retrait' | 'transfert' | 'paiement';
+  referenceContent: string;
+  source: string;
+  validationDate: string;
+  validationStatus: 'VALIDE_OFFICIEL' | 'OBSOLETE';
+  senderShortcode: string;
+  ussdVerify: string;
+  notes: string;
+}
+
 export interface OperatorFormatSpec {
   operator: 'T-Money' | 'Moov Money';
   parentCompany: string;
@@ -15,6 +28,57 @@ export interface OperatorFormatSpec {
   }[];
   criticalRules: string[];
 }
+
+export const OFFICIAL_MODELS_REGISTRY: OfficialModelReference[] = [
+  {
+    id: 'TMONEY-DEPOT-01',
+    operator: 'T-Money',
+    transactionType: 'depot',
+    referenceContent: 'Vous avez recu {MONTANT} FCFA de {EXPEDITEUR}. Nouveau solde: {SOLDE} FCFA. Frais: 0 FCFA. Ref: TXN{DATE}.{HEURE}.{CODE}. Togocom vous remercie.',
+    source: 'Togocom Documentation Publique & Agence Centrale Lomé',
+    validationDate: '2026-01-15',
+    validationStatus: 'VALIDE_OFFICIEL',
+    senderShortcode: 'TMoney',
+    ussdVerify: '*145#',
+    notes: 'Le solde réel augmente instantanément sur le serveur central *145#.',
+  },
+  {
+    id: 'TMONEY-TRANSFERT-01',
+    operator: 'T-Money',
+    transactionType: 'transfert',
+    referenceContent: 'Transfert reussi de {MONTANT} FCFA vers {DESTINATAIRE}. Frais: {FRAIS} FCFA. Nouveau solde: {SOLDE} FCFA. Ref: TXN{DATE}.{HEURE}.{CODE}.',
+    source: 'Togocom Service Technique',
+    validationDate: '2026-01-15',
+    validationStatus: 'VALIDE_OFFICIEL',
+    senderShortcode: 'TMoney',
+    ussdVerify: '*145#',
+    notes: 'Référence au format horodaté strict TXN[YYYYMMDD].[HHMM].[ALPHANUM].',
+  },
+  {
+    id: 'MOOV-TRANSFERT-01',
+    operator: 'Moov Money',
+    transactionType: 'transfert',
+    referenceContent: 'Transfert effectue avec succes. Montant: {MONTANT} FCFA a {DESTINATAIRE}. Frais: {FRAIS} FCFA. Solde disponible: {SOLDE} FCFA. ID Transaction: MP{DATE}{CODE}.',
+    source: 'Moov Africa Togo Centre d’Assistance',
+    validationDate: '2026-02-01',
+    validationStatus: 'VALIDE_OFFICIEL',
+    senderShortcode: 'MoovMoney',
+    ussdVerify: '*155#',
+    notes: 'Identifiant transaction commençant par MP suivi de chiffres traçables.',
+  },
+  {
+    id: 'MOOV-DEPOT-01',
+    operator: 'Moov Money',
+    transactionType: 'depot',
+    referenceContent: 'Depot de {MONTANT} FCFA effectue avec succes sur votre compte Moov Money. Nouveau solde: {SOLDE} FCFA. ID: MP{DATE}{CODE}. Moov Africa.',
+    source: 'Moov Africa Togo Direction Réseau',
+    validationDate: '2026-02-01',
+    validationStatus: 'VALIDE_OFFICIEL',
+    senderShortcode: 'MoovMoney',
+    ussdVerify: '*155#',
+    notes: 'Ne demande jamais de rappeler un numéro de mobile privé.',
+  },
+];
 
 export const OFFICIAL_FORMATS: Record<'tmoney' | 'moov', OperatorFormatSpec> = {
   tmoney: {
